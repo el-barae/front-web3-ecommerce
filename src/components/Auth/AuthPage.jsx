@@ -624,7 +624,6 @@ const AuthSystem = ({ contract }) => {
                   <option value="" className="bg-gray-800 text-white">-- Sélectionnez --</option>
                   <option value="Homme" className="bg-gray-800 text-white">Homme</option>
                   <option value="Femme" className="bg-gray-800 text-white">Femme</option>
-                  <option value="Autre" className="bg-gray-800 text-white">Autre</option>
                 </select>
                 {errors.gender && <p className="text-red-400 text-sm mt-1">{errors.gender}</p>}
               </div>

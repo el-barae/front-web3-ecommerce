@@ -2,18 +2,75 @@ import React, { useState, useEffect } from 'react';
 import { 
   User, Package, Plus, ArrowLeft, Eye, Edit3, TrendingUp, 
   DollarSign, Users, BarChart3, Building, Tag, Hash, Coins,
-  Mail, Calendar, UserCheck, Wallet, Settings, Shield
+  Mail, Calendar, UserCheck, Wallet, Settings, Shield,
+  CheckCircle, ShoppingCart, Clock, Truck, CheckCircle2,
+  Filter, Search, RefreshCw
 } from 'lucide-react';
 
 const SellerDashboard = ({ account, contract }) => {
   const [commodities, setCommodities] = useState([]);
-  const [userProfile, setUserProfile] = useState(null);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
+  const [showUserInfo, setShowUserInfo] = useState(false);
+  const [showOrders, setShowOrders] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [orderFilter, setOrderFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [form, setForm] = useState({
     name: "", category: "", value: "", quantity: "", company: ""
   });
+  const [profileForm, setProfileForm] = useState({
+    firstName: '',
+    lastName: '',
+    age: '',
+    gender: '',
+    email: ''
+  });
+  const [userInfo, setUserInfo] = useState({
+    firstName: '',
+    lastName: '',
+    age: 0,
+    gender: '',
+    isSeller: false,
+    email: '',
+    balance: '0'
+  });
+  const [stats, setStats] = useState({
+    totalSales: 156,
+    totalRevenue: '12.5',
+    averageRating: '4.9'
+  });
+
+  const fetchUserInfo = async () => {
+    try {
+      if (contract && account) {
+        const userDetails = await contract.getUserById(account);
+        const balance = await contract.getBalance(account);
+        
+        setUserInfo({
+          firstName: userDetails[0],
+          lastName: userDetails[1],
+          age: userDetails[2].toString(),
+          gender: userDetails[3],
+          isSeller: userDetails[4],
+          email: userDetails[5],
+          balance: (parseInt(balance) / 1e18).toFixed(4)
+        });
+
+        setProfileForm({
+          firstName: userDetails[0],
+          lastName: userDetails[1],
+          age: userDetails[2].toString(),
+          gender: userDetails[3],
+          email: userDetails[5]
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching user info:", err);
+    }
+  };
 
   const fetchCommodities = async () => {
     try {
@@ -27,37 +84,65 @@ const SellerDashboard = ({ account, contract }) => {
     }
   };
 
-  const fetchUserProfile = async () => {
+  const fetchOrders = async () => {
     try {
-      // First try to get from sessionStorage
-      const storedProfile = sessionStorage.getItem('userProfile');
-      if (storedProfile) {
-        setUserProfile(JSON.parse(storedProfile));
-      }
+      setOrdersLoading(true);
+      const allOrders = await contract.getOrders();
       
-      // Then fetch fresh data from contract if available
-      if (contract && account) {
-        const user = await contract.getUserById(account);
-        if (user.firstName && user.firstName.trim() !== '') {
-          const profileData = {
-            firstName: user.firstName,
-            lastName: user.lastName,
-            age: user.age.toString(),
-            gender: user.gender,
-            isSeller: user.isSeller,
-            email: user.email,
-            balance: user.balance.toString(),
-            walletAddress: account
-          };
-          setUserProfile(profileData);
-          // Update sessionStorage
-          sessionStorage.setItem('userProfile', JSON.stringify(profileData));
-        }
-      }
+      // Filtrer les commandes pour ne garder que celles des produits du vendeur
+      const sellerOrders = allOrders.filter(order => {
+        const commodity = commodities[parseInt(order.commodityId)];
+        return commodity && commodity.seller.toLowerCase() === account.toLowerCase();
+      });
+
+      setOrders(sellerOrders);
     } catch (err) {
-      console.error('Error fetching user profile:', err);
+      console.error("Error fetching orders:", err);
+    } finally {
+      setOrdersLoading(false);
     }
   };
+
+  const updateOrderStatus = async (orderId, newStatus) => {
+    try {
+      const tx = await contract.updateOrderStatus(orderId, newStatus);
+      await tx.wait();
+      alert("Statut de la commande mis à jour !");
+      fetchOrders(); // Rafraîchir les commandes
+    } catch (err) {
+      console.error("Error updating order status:", err);
+      alert("Erreur lors de la mise à jour: " + (err.reason || err.message));
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status.toLowerCase()) {
+      case 'pending': return 'text-yellow-400 bg-yellow-400/20 border-yellow-400/30';
+      case 'shipped': return 'text-blue-400 bg-blue-400/20 border-blue-400/30';
+      case 'delivered': return 'text-green-400 bg-green-400/20 border-green-400/30';
+      default: return 'text-gray-400 bg-gray-400/20 border-gray-400/30';
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status.toLowerCase()) {
+      case 'pending': return <Clock size={16} />;
+      case 'shipped': return <Truck size={16} />;
+      case 'delivered': return <CheckCircle2 size={16} />;
+      default: return <Package size={16} />;
+    }
+  };
+
+  const filteredOrders = orders.filter(order => {
+    const matchesFilter = orderFilter === 'all' || order.status.toLowerCase() === orderFilter;
+    const commodity = commodities[parseInt(order.commodityId)];
+    const matchesSearch = !searchTerm || 
+      (commodity && commodity.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      order.buyer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.id.toString().includes(searchTerm);
+    
+    return matchesFilter && matchesSearch;
+  });
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -85,18 +170,88 @@ const SellerDashboard = ({ account, contract }) => {
     }
   };
 
+  const handleProfileUpdate = async () => {
+    try {
+      if (!profileForm.firstName.trim() || !profileForm.lastName.trim() || !profileForm.email.trim()) {
+        alert("Veuillez remplir tous les champs obligatoires (Prénom, Nom, Email)");
+        return;
+      }
+
+      const age = parseInt(profileForm.age) || 0;
+      if (age < 0 || age > 120) {
+        alert("Veuillez entrer un âge valide");
+        return;
+      }
+
+      const tx = await contract.updateProfile(
+        profileForm.firstName,
+        profileForm.lastName,
+        age,
+        profileForm.gender,
+        profileForm.email
+      );
+      await tx.wait();
+      
+      alert("Profil mis à jour avec succès !");
+      setIsEditingProfile(false);
+      fetchUserInfo();
+    } catch (err) {
+      console.error("Error updating profile:", err);
+      alert("Erreur lors de la mise à jour: " + (err.reason || err.message));
+    }
+  };
+
+  const handleProfileFormChange = (field, value) => {
+    setProfileForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const resetProfileForm = () => {
+    setProfileForm({
+      firstName: userInfo.firstName,
+      lastName: userInfo.lastName,
+      age: userInfo.age,
+      gender: userInfo.gender,
+      email: userInfo.email
+    });
+    setIsEditingProfile(false);
+  };
+
+  const handleDeposit = async () => {
+    const amount = prompt("Montant à déposer (en ETH):");
+    if (amount && !isNaN(amount) && parseFloat(amount) > 0) {
+      try {
+        const amountInWei = (parseFloat(amount) * Math.pow(10, 18)).toString();
+        const tx = await contract.deposit({ value: amountInWei });
+        await tx.wait();
+        alert("Dépôt effectué avec succès !");
+        fetchUserInfo();
+      } catch (err) {
+        console.error("Error depositing:", err);
+        alert("Erreur lors du dépôt: " + (err.reason || err.message));
+      }
+    }
+  };
+
   useEffect(() => {
-    if (contract) {
+    if (contract && account) {
       fetchCommodities();
-      fetchUserProfile();
+      fetchUserInfo();
     }
   }, [contract, account]);
 
+  useEffect(() => {
+    if (commodities.length > 0 && showOrders) {
+      fetchOrders();
+    }
+  }, [commodities, showOrders, account]);
+
   const sellerStats = [
     { icon: Package, number: commodities.length.toString(), label: 'Produits actifs' },
-    { icon: TrendingUp, number: '156', label: 'Ventes totales' },
-    { icon: DollarSign, number: '12.5 ETH', label: 'Revenus générés' },
-    { icon: Users, number: '89', label: 'Clients satisfaits' }
+    { icon: ShoppingCart, number: orders.length.toString(), label: 'Commandes reçues' },
+    { icon: DollarSign, number: `${stats.totalRevenue} ETH`, label: 'Revenus générés' },
   ];
 
   return (
@@ -114,19 +269,18 @@ const SellerDashboard = ({ account, contract }) => {
         </div>
         
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => setShowProfile(!showProfile)}
-            className="flex items-center gap-2 bg-white/10 border border-white/20 px-4 py-2 rounded-lg hover:bg-white/20 transition-all"
+          <button 
+            onClick={handleDeposit}
+            className="bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-2 rounded-lg hover:scale-105 transition-all flex items-center gap-2"
           >
-            <Settings size={16} />
+            <Wallet size={16} />
+            Déposer
           </button>
           <div className="text-right">
             <div className="text-sm text-gray-300 font-mono">
               {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : 'Non connecté'}
             </div>
-            <div className="text-cyan-400 font-semibold bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/30">
-              Vendeur
-            </div>
+            <div className="text-cyan-400 font-semibold">{userInfo.balance} ETH</div>
           </div>
           <div className="w-10 h-10 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full flex items-center justify-center">
             <User size={20} />
@@ -135,138 +289,381 @@ const SellerDashboard = ({ account, contract }) => {
       </header>
 
       <main className="p-8 max-w-7xl mx-auto">
-        {/* User Profile Section */}
-        {showProfile && userProfile && (
-          <div className="bg-white/10 backdrop-blur rounded-2xl p-8 mb-8 border border-white/20">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold flex items-center gap-3">
-                <User size={28} />
+        {/* Welcome Section */}
+        <div className="bg-white/10 backdrop-blur rounded-2xl p-8 mb-8 border border-white/20">
+          <div className="flex justify-between items-center flex-wrap gap-5">
+            <div>
+              <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
+                <BarChart3 size={32} />
+                Dashboard Vendeur
+                {userInfo.firstName && (
+                  <span className="text-cyan-400 text-xl">
+                    - {userInfo.firstName} {userInfo.lastName}
+                  </span>
+                )}
+              </h1>
+              <p className="text-gray-300">
+                {userInfo.email ? `${userInfo.email} - ` : ''}
+                Gérez vos produits et suivez vos performances de vente sur la blockchain.
+              </p>
+              <div className="flex gap-4 mt-4">
+                <button 
+                  onClick={() => setShowUserInfo(!showUserInfo)}
+                  className="bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-2 rounded-lg hover:scale-105 transition-all flex items-center gap-2"
+                >
+                  <User size={16} />
+                  {showUserInfo ? 'Masquer Infos' : 'Mes Infos'}
+                </button>
+                <button 
+                  onClick={() => setShowOrders(!showOrders)}
+                  className="bg-gradient-to-r from-orange-500 to-red-600 px-4 py-2 rounded-lg hover:scale-105 transition-all flex items-center gap-2"
+                >
+                  <ShoppingCart size={16} />
+                  {showOrders ? 'Masquer Commandes' : 'Mes Commandes'}
+                </button>
+              </div>
+            </div>
+            <button 
+              className="flex items-center gap-2 bg-gradient-to-r from-cyan-400 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:scale-105 transition-all shadow-lg shadow-cyan-400/30"
+              onClick={() => setShowAddForm(!showAddForm)}
+            >
+              <Plus size={20} />
+              Ajouter un produit
+            </button>
+          </div>
+        </div>
+
+        {/* User Info Card - Conditionally displayed */}
+        {showUserInfo && (
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-8 border border-white/20">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold flex items-center gap-3">
+                <User size={24} />
                 Informations Personnelles
               </h2>
               <button
-                onClick={() => setShowProfile(false)}
-                className="text-gray-400 hover:text-white transition-all"
+                onClick={() => setIsEditingProfile(!isEditingProfile)}
+                className="bg-gradient-to-r from-cyan-500 to-purple-600 px-4 py-2 rounded-lg hover:scale-105 transition-all flex items-center gap-2 text-sm"
               >
-                ✕
+                <Edit3 size={14} />
+                {isEditingProfile ? 'Annuler' : 'Modifier'}
               </button>
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Personal Info */}
-              <div className="space-y-6">
-                <div className="bg-white/5 p-6 rounded-xl border border-white/10">
-                  <h3 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
-                    <UserCheck size={20} />
-                    Identité
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Prénom :</span>
-                      <span className="font-medium">{userProfile.firstName}</span>
+            
+            {!isEditingProfile ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-cyan-400 mb-3">Identité</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Prénom:</span>
+                      <span className="font-medium">{userInfo.firstName || 'Non renseigné'}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Nom :</span>
-                      <span className="font-medium">{userProfile.lastName}</span>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Nom:</span>
+                      <span className="font-medium">{userInfo.lastName || 'Non renseigné'}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Âge :</span>
-                      <span className="font-medium">{userProfile.age} ans</span>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Âge:</span>
+                      <span className="font-medium">{userInfo.age || 'Non renseigné'}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Genre :</span>
-                      <span className="font-medium">{userProfile.gender}</span>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Genre:</span>
+                      <span className="font-medium">{userInfo.gender || 'Non renseigné'}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white/5 p-6 rounded-xl border border-white/10">
-                  <h3 className="text-lg font-semibold text-purple-400 mb-4 flex items-center gap-2">
-                    <Mail size={20} />
-                    Contact
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Email :</span>
-                      <span className="font-medium text-sm break-all">{userProfile.email}</span>
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-cyan-400 mb-3">Contact</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Email:</span>
+                      <span className="font-medium text-right max-w-[150px] truncate" title={userInfo.email}>
+                        {userInfo.email || 'Non renseigné'}
+                      </span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Type de compte :</span>
-                      <span className="font-medium flex items-center gap-2">
-                        <Shield size={16} className="text-cyan-400" />
-                        {userProfile.isSeller ? 'Vendeur' : 'Acheteur'}
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Wallet:</span>
+                      <span className="font-mono text-cyan-400 text-sm">
+                        {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : 'Non connecté'}
                       </span>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Blockchain Info */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-cyan-400 mb-3">Compte Vendeur</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Solde:</span>
+                      <span className="font-bold text-green-400">{userInfo.balance} ETH</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Produits:</span>
+                      <span className="font-medium text-purple-400">{commodities.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Commandes:</span>
+                      <span className="font-medium text-orange-400">{orders.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300 text-sm">Revenus:</span>
+                      <span className="font-medium text-cyan-300">{stats.totalRevenue} ETH</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Profile Edit Mode */
               <div className="space-y-6">
-                <div className="bg-white/5 p-6 rounded-xl border border-white/10">
-                  <h3 className="text-lg font-semibold text-yellow-400 mb-4 flex items-center gap-2">
-                    <Wallet size={20} />
-                    Blockchain
-                  </h3>
-                  <div className="space-y-3">
+                <h3 className="text-lg font-semibold text-cyan-400">Modifier mes informations</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
                     <div>
-                      <span className="text-gray-400 block mb-1">Adresse du wallet :</span>
-                      <div className="bg-white/5 p-3 rounded-lg border border-white/10 font-mono text-sm break-all">
-                        {userProfile.walletAddress}
+                      <label className="block text-sm text-gray-300 mb-2">Prénom *</label>
+                      <input
+                        type="text"
+                        value={profileForm.firstName}
+                        onChange={(e) => handleProfileFormChange('firstName', e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-all"
+                        placeholder="Votre prénom"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-2">Nom *</label>
+                      <input
+                        type="text"
+                        value={profileForm.lastName}
+                        onChange={(e) => handleProfileFormChange('lastName', e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-all"
+                        placeholder="Votre nom"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-2">Âge</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="120"
+                        value={profileForm.age}
+                        onChange={(e) => handleProfileFormChange('age', e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-all"
+                        placeholder="Votre âge"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-2">Genre</label>
+                      <select
+                        value={profileForm.gender}
+                        onChange={(e) => handleProfileFormChange('gender', e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-400 transition-all"
+                      >
+                        <option value="">Sélectionner</option>
+                        <option value="Homme">Homme</option>
+                        <option value="Femme">Femme</option>
+                        <option value="Autre">Autre</option>
+                        <option value="Ne souhaite pas préciser">Ne souhaite pas préciser</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-2">Email *</label>
+                      <input
+                        type="email"
+                        value={profileForm.email}
+                        onChange={(e) => handleProfileFormChange('email', e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-all"
+                        placeholder="votre.email@exemple.com"
+                      />
+                    </div>
+
+                    <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                      <p className="text-sm text-gray-400">
+                        <strong>Note:</strong> L'adresse wallet et le statut vendeur ne peuvent pas être modifiés.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-6 border-t border-white/20">
+                  <button
+                    onClick={handleProfileUpdate}
+                    className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-3 rounded-lg hover:scale-105 transition-all flex items-center gap-2 font-semibold"
+                  >
+                    <CheckCircle size={16} />
+                    Sauvegarder
+                  </button>
+                  
+                  <button
+                    onClick={resetProfileForm}
+                    className="border border-white/30 px-6 py-3 rounded-lg hover:bg-white/10 transition-all flex items-center gap-2 font-semibold"
+                  >
+                    <ArrowLeft size={16} />
+                    Annuler
+                  </button>
+                </div>
+
+                <div className="text-sm text-gray-400">
+                  <p>* Champs obligatoires</p>
+                </div>
+              </div>
+            )}
+
+            {userInfo.isSeller && !isEditingProfile && (
+              <div className="mt-6 pt-4 border-t border-white/20">
+                <div className="inline-flex items-center px-4 py-3 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  <Shield size={18} className="mr-3" />
+                  <div>
+                    <div className="font-semibold">Compte Vendeur Vérifié</div>
+                    <div className="text-sm opacity-80">Vous pouvez vendre des produits sur la plateforme</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Orders Management Section */}
+        {showOrders && (
+          <div className="bg-white/10 backdrop-blur rounded-2xl p-8 mb-8 border border-white/20">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold flex items-center gap-3">
+                <ShoppingCart size={28} />
+                Gestion des Commandes
+              </h2>
+              <button
+                onClick={fetchOrders}
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-2 rounded-lg hover:scale-105 transition-all flex items-center gap-2"
+              >
+                <RefreshCw size={16} />
+                Actualiser
+              </button>
+            </div>
+
+            {/* Filters and Search */}
+            <div className="flex flex-wrap gap-4 mb-6">
+              <div className="flex items-center gap-2">
+                <Filter size={16} />
+                <select
+                  value={orderFilter}
+                  onChange={(e) => setOrderFilter(e.target.value)}
+                  className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                >
+                  <option value="all">Toutes les commandes</option>
+                  <option value="pending">En attente</option>
+                  <option value="shipped">Expédiées</option>
+                  <option value="delivered">Livrées</option>
+                </select>
+              </div>
+              
+              <div className="flex items-center gap-2 flex-1 max-w-md">
+                <Search size={16} />
+                <input
+                  type="text"
+                  placeholder="Rechercher par produit, acheteur ou ID..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+            </div>
+
+            {ordersLoading ? (
+              <div className="flex justify-center items-center h-48">
+                <div className="w-10 h-10 border-3 border-white/30 border-t-cyan-400 rounded-full animate-spin"></div>
+              </div>
+            ) : filteredOrders.length === 0 ? (
+              <div className="text-center py-16 text-gray-400">
+                <ShoppingCart size={64} className="mx-auto mb-4 opacity-50" />
+                <p>Aucune commande trouvée</p>
+                <p className="text-sm mt-2">
+                  {orders.length === 0 ? 
+                    "Vous n'avez pas encore reçu de commandes" : 
+                    "Aucune commande ne correspond aux critères de recherche"
+                  }
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredOrders.map((order, index) => {
+                  const commodity = commodities[parseInt(order.commodityId)];
+                  const orderDate = new Date(parseInt(order.timestamp) * 1000);
+                  
+                  return (
+                    <div key={index} className="bg-white/5 rounded-xl p-6 border border-white/10 hover:bg-white/10 transition-all">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                          <div className="font-semibold text-lg mb-1">
+                            Commande #{order.id.toString()}
+                          </div>
+                          <div className="text-sm text-gray-300">
+                            {orderDate.toLocaleDateString('fr-FR')} à {orderDate.toLocaleTimeString('fr-FR')}
+                          </div>
+                          <div className="text-sm text-purple-400 mt-1">
+                            {commodity ? commodity.name : 'Produit inconnu'}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-sm text-gray-300 mb-1">Acheteur</div>
+                          <div className="font-mono text-sm bg-white/10 px-2 py-1 rounded">
+                            {order.buyer.slice(0, 6)}...{order.buyer.slice(-4)}
+                          </div>
+                          <div className="text-sm text-cyan-400 mt-1">
+                            Quantité: {order.quantity.toString()}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-sm text-gray-300 mb-1">Montant</div>
+                          <div className="font-bold text-green-400">
+                            {(parseInt(order.totalPrice) / 1e18).toFixed(4)} ETH
+                          </div>
+                          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-sm font-medium border mt-2 ${getStatusColor(order.status)}`}>
+                            {getStatusIcon(order.status)}
+                            {order.status}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          {order.status.toLowerCase() === 'pending' && (
+                            <button
+                              onClick={() => updateOrderStatus(order.id, 'Shipped')}
+                              className="bg-gradient-to-r from-blue-500 to-blue-600 px-3 py-2 rounded-lg text-sm hover:scale-105 transition-all flex items-center gap-2"
+                            >
+                              <Truck size={14} />
+                              Marquer Expédié
+                            </button>
+                          )}
+                          
+                          {order.status.toLowerCase() === 'shipped' && (
+                            <button
+                              onClick={() => updateOrderStatus(order.id, 'Delivered')}
+                              className="bg-gradient-to-r from-green-500 to-green-600 px-3 py-2 rounded-lg text-sm hover:scale-105 transition-all flex items-center gap-2"
+                            >
+                              <CheckCircle2 size={14} />
+                              Marquer Livré
+                            </button>
+                          )}
+                          
+                          <button className="border border-white/30 px-3 py-2 rounded-lg text-sm hover:bg-white/10 transition-all flex items-center gap-2">
+                            <Eye size={14} />
+                            Détails
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Solde :</span>
-                      <span className="font-medium text-green-400">
-                        {userProfile.balance ? `${(parseInt(userProfile.balance) / 1e18).toFixed(4)} ETH` : '0 ETH'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Statut :</span>
-                      <span className="text-green-400 flex items-center gap-1">
-                        ✅ Vérifié
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white/5 p-6 rounded-xl border border-white/10">
-                  <h3 className="text-lg font-semibold text-green-400 mb-4 flex items-center gap-2">
-                    <BarChart3 size={20} />
-                    Statistiques
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Produits en vente :</span>
-                      <span className="font-medium text-cyan-400">{commodities.length}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Membre depuis :</span>
-                      <span className="font-medium">
-                        {new Date().toLocaleDateString('fr-FR')}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Dernière connexion :</span>
-                      <span className="font-medium text-green-400">
-                        Maintenant
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-4 justify-center mt-8">
-              <button className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:scale-105 transition-all">
-                <Edit3 size={18} />
-                Modifier le profil
-              </button>
-              <button className="flex items-center gap-2 bg-white/10 border border-white/20 px-6 py-3 rounded-xl font-semibold hover:bg-white/20 transition-all">
-                <Wallet size={18} />
-                Gérer le wallet
-              </button>
-            </div>
+            )}
           </div>
         )}
 
@@ -285,31 +682,6 @@ const SellerDashboard = ({ account, contract }) => {
               </div>
             </div>
           ))}
-        </div>
-
-        {/* Welcome Section */}
-        <div className="bg-white/10 backdrop-blur rounded-2xl p-8 mb-8 border border-white/20 flex justify-between items-center flex-wrap gap-5">
-          <div>
-            <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-              <BarChart3 size={32} />
-              Dashboard Vendeur
-              {userProfile && (
-                <span className="text-cyan-400 text-xl">
-                  - {userProfile.firstName} {userProfile.lastName}
-                </span>
-              )}
-            </h1>
-            <p className="text-gray-300">
-              Gérez vos produits et suivez vos performances de vente sur la blockchain.
-            </p>
-          </div>
-          <button 
-            className="flex items-center gap-2 bg-gradient-to-r from-cyan-400 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:scale-105 transition-all shadow-lg shadow-cyan-400/30"
-            onClick={() => setShowAddForm(!showAddForm)}
-          >
-            <Plus size={20} />
-            Ajouter un produit
-          </button>
         </div>
 
         {/* Add Product Form */}
@@ -379,7 +751,7 @@ const SellerDashboard = ({ account, contract }) => {
                   onChange={handleChange}
                   value={form.quantity}
                   required 
-                  className="w-full bg-white/10 border border-white/30 rounded-lg p-3 text-white placeholder-gray-400 focus:border-cyan-400 focus:outline-none transition-all"
+                  className="w-full bg-white/10 border border-white/30 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-all"
                 />
               </div>
 
