@@ -4,10 +4,10 @@ import {
   Eye, Heart, ShoppingCart, Shield, Clock, CheckCircle, Truck,
   Calendar, Hash, DollarSign, Filter
 } from 'lucide-react';
-// Note: ethers should be imported in your main application
-// For this demo, we'll assume ethers is available globally
+import { Navigate, useNavigate } from 'react-router-dom';
 
 const ClientDashboard = ({ account, contract }) => {
+  const navigate = useNavigate();
   const [commodities, setCommodities] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +43,7 @@ const ClientDashboard = ({ account, contract }) => {
     try {
       if (contract && account) {
         const userDetails = await contract.getUserById(account);
-        const balance = await contract.getBalance(account);
+        const balance = await contract.getEthBalance(account);
         
         setUserInfo({
           firstName: userDetails[0],
@@ -203,22 +203,22 @@ const ClientDashboard = ({ account, contract }) => {
     setIsEditingProfile(false);
   };
 
-  const handleDeposit = async () => {
-    const amount = prompt("Montant à déposer (en ETH):");
-    if (amount && !isNaN(amount) && parseFloat(amount) > 0) {
-      try {
-        // Convert amount to wei (1 ETH = 10^18 wei)
-        const amountInWei = (parseFloat(amount) * Math.pow(10, 18)).toString();
-        const tx = await contract.deposit({ value: amountInWei });
-        await tx.wait();
-        alert("Dépôt effectué avec succès !");
-        fetchUserInfo();
-      } catch (err) {
-        console.error("Error depositing:", err);
-        alert("Erreur lors du dépôt: " + (err.reason || err.message));
-      }
-    }
-  };
+  // const handleDeposit = async () => {
+  //   const amount = prompt("Montant à déposer (en ETH):");
+  //   if (amount && !isNaN(amount) && parseFloat(amount) > 0) {
+  //     try {
+  //       // Convert amount to wei (1 ETH = 10^18 wei)
+  //       const amountInWei = (parseFloat(amount) * Math.pow(10, 18)).toString();
+  //       const tx = await contract.deposit({ value: amountInWei });
+  //       await tx.wait();
+  //       alert("Dépôt effectué avec succès !");
+  //       fetchUserInfo();
+  //     } catch (err) {
+  //       console.error("Error depositing:", err);
+  //       alert("Erreur lors du dépôt: " + (err.reason || err.message));
+  //     }
+  //   }
+  // };
 
   const getStatusIcon = (status) => {
     switch (status) {
@@ -265,6 +265,13 @@ const ClientDashboard = ({ account, contract }) => {
     // { icon: CreditCard, number: `${stats.totalSpent} ETH`, label: 'Dépensé' }
   ];
 
+  const handleLogout = () => {
+    sessionStorage.setItem('userRole','')
+    sessionStorage.setItem('userProfile','')
+    navigate('/');
+  };
+
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-800 to-slate-900 text-white">
       {/* Header */}
@@ -280,14 +287,24 @@ const ClientDashboard = ({ account, contract }) => {
         </div>
         
         <div className="flex items-center gap-4">
-  
-          <button 
+
+          {/* <button 
             onClick={handleDeposit}
             className="bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-2 rounded-lg hover:scale-105 transition-all flex items-center gap-2"
           >
             <Wallet size={16} />
             Déposer
-          </button>
+          </button> */}
+  
+          <div className="flex gap-4 justify-center">
+              <button
+                onClick={handleLogout}
+                className="px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 rounded-xl text-white font-medium transition-all hover:-translate-y-0.5 shadow-lg shadow-red-500/30"
+              >
+                Se déconnecter
+              </button>
+            </div>
+
           <div className="text-right">
             <div className="text-sm text-gray-300 font-mono">
               {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : 'Non connecté'}
@@ -673,7 +690,7 @@ const ClientDashboard = ({ account, contract }) => {
                         Société: {product.company || 'Non spécifiée'}
                       </p>
                       <div className="text-xl font-bold text-cyan-400 mb-2">
-                        {product.value ? `${(parseInt(product.value) / 1e18).toFixed(4)} ETH` : 'Prix non disponible'}
+                        {product.value ? `${parseInt(product.value)} gwei` : 'Prix non disponible'}
                       </div>
                       <div className="text-sm text-gray-400 mb-4">
                         Stock: {product.quantity ? product.quantity.toString() : '0'} | 
@@ -713,7 +730,7 @@ const ClientDashboard = ({ account, contract }) => {
                             <div className="mt-2 text-sm">
                               <span className="text-gray-400">Total: </span>
                               <span className="text-cyan-300 font-semibold">
-                                {((parseInt(product.value) / 1e18) * (quantities[index] || 1)).toFixed(4)} ETH
+                                {((parseInt(product.value)) * (quantities[index] || 1)).toFixed(2)} gwei
                               </span>
                             </div>
                           )}
@@ -826,11 +843,11 @@ const ClientDashboard = ({ account, contract }) => {
                               <DollarSign size={14} />
                               <span className="text-white">Total:</span> 
                               <span className="text-cyan-400 font-semibold">
-                                {order.totalPrice ? `${(parseInt(order.totalPrice) / 1e18).toFixed(4)} ETH` : 'N/A'}
+                                {order.totalPrice ? `${(parseInt(order.totalPrice))} gwei` : 'N/A'}
                               </span>
                             </p>
                             <p><span className="text-white">Prix unitaire:</span> 
-                              {product.value ? ` ${(parseInt(product.value) / 1e18).toFixed(4)} ETH` : ' N/A'}
+                              {product.value ? ` ${(parseInt(product.value))} gwei` : ' N/A'}
                             </p>
                             <p><span className="text-white">Vendeur:</span> 
                               {product.seller ? ` ${product.seller.slice(0, 6)}...${product.seller.slice(-4)}` : ' N/A'}

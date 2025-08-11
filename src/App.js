@@ -14,7 +14,7 @@ import EcommerceABI from "./abis/Ecommerce.json";
 // import BuyCommodity from "./components/BuyCommodity";
 
 
-const contractAddress = "0x2c5149556767010Ee6452d23E27Dc72c37c1D780";
+const contractAddress = "0x01A443cebe832512e37C3FC0F02DC48C44bd187c";
 
 function App() {
   const [account, setAccount] = useState(null);
