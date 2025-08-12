@@ -128,7 +128,8 @@ const HomePage = () => {
           <p className="text-gray-300 mb-8">
             Rejoignez des milliers d'utilisateurs qui font confiance à notre plateforme blockchain.
           </p>
-          <button className="px-10 py-4 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full font-semibold text-lg hover:scale-105 transition-transform shadow-lg shadow-pink-500/30">
+          <button className="px-10 py-4 mb-10 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full font-semibold text-lg hover:scale-105 transition-transform shadow-lg shadow-pink-500/30"
+          onClick={()=>Navigate('')}>
             Commencer maintenant
           </button>
         </div>

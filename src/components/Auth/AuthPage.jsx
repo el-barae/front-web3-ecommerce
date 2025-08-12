@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Calendar, Users, Shield, Mail, Wallet, AlertCircle, CheckCircle, LogIn, UserPlus, Key } from 'lucide-react';
+import { User, Calendar, Users, Shield, Mail, Wallet, AlertCircle, CheckCircle, LogIn, UserPlus, Key, Upload, Camera, X, Image as ImageIcon } from 'lucide-react';
 
 const AuthSystem = ({ contract }) => {
   const navigate = useNavigate();
@@ -19,12 +19,175 @@ const AuthSystem = ({ contract }) => {
     gender: '',
     email: '',
     isSeller: false,
+    image: ''
   });
+  
+  // États pour la gestion d'image
+  const [registerImagePreview, setRegisterImagePreview] = useState(null);
+  const [registerImageUploading, setRegisterImageUploading] = useState(false);
+  const registerFileInputRef = useRef(null);
   
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
   const [nonce, setNonce] = useState('');
+
+  const IPFS_GATEWAY = "https://cyan-advisory-toucan-305.mypinata.cloud/ipfs/"; // Ajout du protocole et du chemin
+  const PINATA_API_KEY = "853795a4faf98463df3e";
+  const PINATA_SECRET_KEY = "9d47a960af4553eec28765486a5d41c8098f6dc11973594e175f35d5669909de";
+
+  // Fonction pour uploader vers IPFS via Pinata
+  const uploadToIPFS = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const metadata = JSON.stringify({
+      name: file.name,
+      keyvalues: {
+        type: 'profile_image'
+      }
+    });
+    formData.append('pinataMetadata', metadata);
+
+    try {
+      const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+        method: 'POST',
+        headers: {
+          'pinata_api_key': PINATA_API_KEY,
+          'pinata_secret_api_key': PINATA_SECRET_KEY,
+        },
+        body: formData
+      });
+      
+      const result = await response.json();
+      return result.IpfsHash;
+    } catch (error) {
+      console.error('Erreur upload IPFS:', error);
+      throw error;
+    }
+  };
+
+  // Fonction pour construire l'URL IPFS correcte
+  const getIPFSUrl = (hash) => {
+    if (!hash) return null;
+    
+    // Si c'est déjà une URL complète, la retourner telle quelle
+    if (hash.startsWith('http://') || hash.startsWith('https://')) {
+      return hash;
+    }
+    
+    // Si c'est un hash IPFS, construire l'URL complète
+    if (hash.startsWith('Qm') || hash.startsWith('bafy')) {
+      return `${IPFS_GATEWAY}${hash}`;
+    }
+    
+    return hash;
+  };
+
+  // Composant pour l'affichage d'image avec fallback amélioré
+  const ImageDisplay = ({ src, alt, className, fallback = true }) => {
+    const [imageError, setImageError] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const handleImageError = () => {
+      console.error('Erreur chargement image:', src);
+      setImageError(true);
+      setIsLoading(false);
+    };
+
+    const handleImageLoad = () => {
+      setIsLoading(false);
+    };
+
+    // Construire l'URL correcte
+    const imageUrl = getIPFSUrl(src);
+  
+
+    if (imageError || !imageUrl) {
+      if (!fallback) return null;
+      return (
+        <div className={`${className} flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border-2 border-dashed border-white/30 rounded-full`}>
+          <ImageIcon className="w-8 h-8 text-white/50" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="relative">
+        {isLoading && (
+          <div className={`${className} flex items-center justify-center bg-white/10 rounded-full absolute inset-0`}>
+            <div className="w-6 h-6 border-2 border-white/30 border-t-cyan-400 rounded-full animate-spin"></div>
+          </div>
+        )}
+        <img
+          src={imageUrl}
+          alt={alt}
+          className={className}
+          onError={handleImageError}
+          onLoad={handleImageLoad}
+          style={{ display: isLoading ? 'none' : 'block' }}
+          crossOrigin="anonymous" // Ajout pour éviter les problèmes CORS
+        />
+      </div>
+    );
+  };
+
+  // Fonction pour gérer l'upload d'image d'inscription
+  const handleRegisterImageUpload = async (file) => {
+    if (!file) return;
+
+    // Validation du fichier
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      alert('Format non supporté. Utilisez: JPG, PNG, WEBP');
+      return;
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      alert('L\'image ne doit pas dépasser 5MB');
+      return;
+    }
+
+    setRegisterImageUploading(true);
+    
+    try {
+      // Créer preview local
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setRegisterImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+
+      // Upload vers IPFS
+      const ipfsHash = await uploadToIPFS(file);
+      
+      // Mettre à jour le formulaire
+      setRegisterForm(prev => ({
+        ...prev,
+        image: ipfsHash
+      }));
+
+    } catch (error) {
+      console.error('Erreur upload image:', error);
+      alert('Erreur lors de l\'upload de l\'image');
+      setRegisterImagePreview(null);
+    } finally {
+      setRegisterImageUploading(false);
+    }
+  };
+
+  // Fonction pour supprimer l'image d'inscription
+  const handleRegisterImageRemove = () => {
+    setRegisterImagePreview(null);
+    setRegisterForm(prev => ({
+      ...prev,
+      image: ''
+    }));
+    if (registerFileInputRef.current) {
+      registerFileInputRef.current.value = '';
+    }
+  };
 
   // Connect wallet on component mount
   useEffect(() => {
@@ -185,15 +348,18 @@ const AuthSystem = ({ contract }) => {
     try {
       const user = await contract.getUserById(connectedAccount);
       if (user.firstName && user.firstName.trim() !== '') {
-        setUserProfile({
+        const userProfileData = {
           firstName: user.firstName,
           lastName: user.lastName,
           age: user.age.toString(),
           gender: user.gender,
           isSeller: user.isSeller,
           email: user.email,
-          balance: user.balance.toString()
-        });
+          balance: user.balance.toString(),
+          image: user.image || '' // Inclure l'image
+        };
+        setUserProfile(userProfileData);
+
       }
     } catch (error) {
       console.log('User not registered yet');
@@ -314,16 +480,18 @@ const AuthSystem = ({ contract }) => {
           }
 
           // User exists and signature is valid
-          setUserProfile({
+          const userProfileData = {
             firstName: user.firstName,
             lastName: user.lastName,
             age: user.age.toString(),
             gender: user.gender,
             isSeller: user.isSeller,
             email: user.email,
-            balance: user.balance.toString()
-          });
-
+            balance: user.balance.toString(),
+            image: user.image || '' // Inclure l'image
+          };
+          
+          setUserProfile(userProfileData);
           setIsAuthenticated(true);
           setSuccessMessage('Connexion réussie ! Redirection...');
           
@@ -363,7 +531,7 @@ const AuthSystem = ({ contract }) => {
     setErrors({});
     
     try {
-      // Register user without password - just use wallet address as authentication
+      // Register user avec image IPFS hash
       const tx = await contract.register(
         registerForm.firstName,
         registerForm.lastName,
@@ -371,6 +539,7 @@ const AuthSystem = ({ contract }) => {
         registerForm.gender,
         registerForm.isSeller,
         registerForm.email,
+        registerForm.image || '' // Inclure l'image IPFS hash
       );
       await tx.wait();
       
@@ -385,7 +554,9 @@ const AuthSystem = ({ contract }) => {
         gender: '',
         email: '',
         isSeller: false,
+        image: ''
       });
+      setRegisterImagePreview(null);
       
     } catch (err) {
       console.error(err);
@@ -483,6 +654,26 @@ const AuthSystem = ({ contract }) => {
               </div>
             )}
 
+            {/* User Profile Preview si connecté */}
+            {userProfile && !isAuthenticated && (
+              <div className="bg-blue-500/10 border border-blue-400/20 rounded-xl p-4 mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-blue-400/50 flex-shrink-0">
+                    <ImageDisplay
+                      src={userProfile.image}
+                      alt="Photo de profil"
+                      className="w-full h-full object-cover"
+                      fallback={true}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-blue-300 font-medium">{userProfile.firstName} {userProfile.lastName}</p>
+                    <p className="text-xs text-gray-400">{userProfile.isSeller ? 'Vendeur' : 'Client'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Signature Process Explanation */}
             <div className="bg-blue-500/10 border border-blue-400/20 rounded-xl p-4 mb-6">
               <h3 className="text-blue-300 font-medium mb-2 flex items-center gap-2">
@@ -550,8 +741,91 @@ const AuthSystem = ({ contract }) => {
                   <AlertCircle size={16} />
                   <span className="text-sm">Connectez d'abord votre wallet</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={connectWallet}
+                  className="mt-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-lg text-white text-sm hover:scale-105 transition-all"
+                >
+                  Connecter Wallet
+                </button>
               </div>
             )}
+
+            {/* Photo de profil */}
+            <div className="mb-6">
+              <label className="block mb-3 text-gray-200 text-sm font-medium">Photo de profil (optionnel)</label>
+              
+              <div className="flex items-center gap-6">
+                {/* Preview de l'image */}
+                <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-cyan-400/50 flex-shrink-0">
+                  {registerImagePreview ? (
+                    <img
+                      src={registerImagePreview}
+                      alt="Preview"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-purple-500/20">
+                      <Camera className="w-8 h-8 text-white/50" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Contrôles upload */}
+                <div className="flex-1">
+                  <input
+                    ref={registerFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => e.target.files[0] && handleRegisterImageUpload(e.target.files[0])}
+                    className="hidden"
+                  />
+                  
+                  <div className="flex gap-3 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => registerFileInputRef.current?.click()}
+                      disabled={registerImageUploading}
+                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-lg hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    >
+                      {registerImageUploading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          Upload...
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={16} />
+                          Choisir une photo
+                        </>
+                      )}
+                    </button>
+                    
+                    {registerImagePreview && (
+                      <button
+                        type="button"
+                        onClick={handleRegisterImageRemove}
+                        className="flex items-center gap-2 px-4 py-2 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-500/10 transition-all text-sm"
+                      >
+                        <X size={16} />
+                        Supprimer
+                      </button>
+                    )}
+                  </div>
+                  
+                  <p className="text-xs text-gray-400 mt-2">
+                    JPG, PNG, WEBP (max 5MB)
+                  </p>
+                  
+                  {registerImageUploading && (
+                    <div className="mt-2 text-xs text-cyan-400 flex items-center gap-2">
+                      <div className="w-3 h-3 border border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin"></div>
+                      Upload vers IPFS en cours...
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
 
             {/* Name Fields */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -624,6 +898,7 @@ const AuthSystem = ({ contract }) => {
                   <option value="" className="bg-gray-800 text-white">-- Sélectionnez --</option>
                   <option value="Homme" className="bg-gray-800 text-white">Homme</option>
                   <option value="Femme" className="bg-gray-800 text-white">Femme</option>
+                  <option value="Autre" className="bg-gray-800 text-white">Autre</option>
                 </select>
                 {errors.gender && <p className="text-red-400 text-sm mt-1">{errors.gender}</p>}
               </div>
@@ -665,15 +940,20 @@ const AuthSystem = ({ contract }) => {
 
             <button
               type="submit"
-              disabled={loading || !connectedAccount}
+              disabled={loading || !connectedAccount || registerImageUploading}
               className={`w-full py-4 rounded-xl text-white text-lg font-semibold transition-all ${
-                loading || !connectedAccount
+                loading || !connectedAccount || registerImageUploading
                   ? 'bg-gray-600 cursor-not-allowed' 
                   : 'bg-gradient-to-r from-cyan-500 to-purple-600 hover:-translate-y-0.5 hover:from-cyan-600 hover:to-purple-700 shadow-lg shadow-cyan-500/30'
               }`}
             >
-              {loading ? 'Inscription...' : "S'inscrire"}
+              {loading ? 'Inscription...' : registerImageUploading ? 'Upload en cours...' : "S'inscrire"}
             </button>
+
+            {/* Note IPFS */}
+            <div className="text-center text-xs text-gray-400">
+              🌐 Les images sont stockées de manière décentralisée sur IPFS
+            </div>
           </form>
         )}
       </div>

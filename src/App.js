@@ -8,13 +8,7 @@ import ClientDashboard from "./components/Client/ClientDashboard";
 import { ethers } from "ethers";
 import EcommerceABI from "./abis/Ecommerce.json";
 
-// import RegisterUser from "./components/RegisterUser";
-// import AddCommodity from "./components/AddCommodity";
-// import ListCommodities from "./components/ListCommodities";
-// import BuyCommodity from "./components/BuyCommodity";
-
-
-const contractAddress = "0x01A443cebe832512e37C3FC0F02DC48C44bd187c";
+const contractAddress = "0x9c119135c9b27d1e3A3Ed50A01B5c546aE3FfeA0";
 
 function App() {
   const [account, setAccount] = useState(null);

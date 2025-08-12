@@ -1,15 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, Package, Plus, ArrowLeft, Eye, Edit3, TrendingUp, 
   DollarSign, Users, BarChart3, Building, Tag, Hash, Coins,
   Mail, Calendar, UserCheck, Wallet, Settings, Shield,
   CheckCircle, ShoppingCart, Clock, Truck, CheckCircle2,
-  Filter, Search, RefreshCw
+  Filter, Search, RefreshCw, Upload, Image as ImageIcon, X, Camera
 } from 'lucide-react';
 import { Navigate, useNavigate } from 'react-router-dom';
 
 const SellerDashboard = ({ account, contract }) => {
   const navigate = useNavigate();
+  const IPFS_GATEWAY = "cyan-advisory-toucan-305.mypinata.cloud";
+  const PINATA_API_KEY = "853795a4faf98463df3e";
+  const PINATA_SECRET_KEY = "9d47a960af4553eec28765486a5d41c8098f6dc11973594e175f35d5669909de";
+  
   const [commodities, setCommodities] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,15 +24,25 @@ const SellerDashboard = ({ account, contract }) => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [orderFilter, setOrderFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // États pour les images
+  const [imagePreview, setImagePreview] = useState(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [productImagePreview, setProductImagePreview] = useState(null);
+  const [productImageUploading, setProductImageUploading] = useState(false);
+  const fileInputRef = useRef(null);
+  const productFileInputRef = useRef(null);
+  
   const [form, setForm] = useState({
-    name: "", category: "", value: "", quantity: "", company: ""
+    name: "", category: "", value: "", quantity: "", company: "", image: ""
   });
   const [profileForm, setProfileForm] = useState({
     firstName: '',
     lastName: '',
     age: '',
     gender: '',
-    email: ''
+    email: '',
+    image: ''
   });
   const [userInfo, setUserInfo] = useState({
     firstName: '',
@@ -37,7 +51,8 @@ const SellerDashboard = ({ account, contract }) => {
     gender: '',
     isSeller: false,
     email: '',
-    balance: '0'
+    balance: '0',
+    image: ''
   });
   const [stats, setStats] = useState({
     totalSales: 156,
@@ -45,29 +60,250 @@ const SellerDashboard = ({ account, contract }) => {
     averageRating: '4.9'
   });
 
+  // Fonction pour uploader vers IPFS via Pinata
+  const uploadToIPFS = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const metadata = JSON.stringify({
+      name: file.name,
+      keyvalues: {
+        type: 'image'
+      }
+    });
+    formData.append('pinataMetadata', metadata);
+
+    try {
+      const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+        method: 'POST',
+        headers: {
+          'pinata_api_key': PINATA_API_KEY,
+          'pinata_secret_api_key': PINATA_SECRET_KEY,
+        },
+        body: formData
+      });
+      
+      const result = await response.json();      
+      if (result.IpfsHash) {
+        return result.IpfsHash;
+      } else {
+        throw new Error("Pas de hash IPFS retourné");
+      }
+    } catch (error) {
+      console.error('Erreur upload IPFS:', error);
+      throw error;
+    }
+  };
+
+  // Composant pour l'affichage d'image avec fallback
+  const ImageDisplay = ({ src, alt, className, fallback = true }) => {
+    const [imageError, setImageError] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const handleImageError = () => {
+      setImageError(true);
+      setIsLoading(false);
+    };
+
+    const handleImageLoad = () => {
+      setIsLoading(false);
+    };
+
+    if (imageError || !src) {
+      if (!fallback) return null;
+      return (
+        <div className={`${className} flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border-2 border-dashed border-white/30 rounded-xl`}>
+          <ImageIcon className="w-8 h-8 text-white/50" />
+        </div>
+      );
+    }
+
+    // Construction de l'URL de l'image
+    const getImageUrl = (src) => {
+      if (!src) return '';
+      
+      // Si c'est déjà une URL complète
+      if (src.startsWith('http')) return src;
+      
+      // Si c'est un hash IPFS (commence par Qm)
+      if (src.startsWith('Qm')) {
+        return `https://${IPFS_GATEWAY}/ipfs/${src}`;
+      }
+      
+      // Sinon, essayer de construire l'URL IPFS
+      return `https://${IPFS_GATEWAY}/ipfs/${src}`;
+    };
+
+    const imageUrl = getImageUrl(src);
+    return (
+      <div className="relative">
+        {isLoading && (
+          <div className={`${className} flex items-center justify-center bg-white/10 rounded-xl absolute inset-0`}>
+            <div className="w-6 h-6 border-2 border-white/30 border-t-cyan-400 rounded-full animate-spin"></div>
+          </div>
+        )}
+        <img
+          src={imageUrl}
+          alt={alt}
+          className={className}
+          onError={handleImageError}
+          onLoad={handleImageLoad}
+          style={{ display: isLoading ? 'none' : 'block' }}
+        />
+      </div>
+    );
+  };
+
+  // Fonction pour gérer l'upload d'image de profil
+  const handleImageUpload = async (file) => {
+    if (!file) return;
+
+    // Validation du fichier
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      alert('Format non supporté. Utilisez: JPG, PNG, WEBP');
+      return;
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      alert('L\'image ne doit pas dépasser 5MB');
+      return;
+    }
+
+    setImageUploading(true);
+    
+    try {
+      // Créer preview local
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+
+      // Upload vers IPFS
+      const ipfsHash = await uploadToIPFS(file);
+      
+      // Mettre à jour le formulaire avec le hash IPFS
+      handleProfileFormChange('image', ipfsHash);
+      
+      // Mettre à jour le preview avec l'URL IPFS
+      const ipfsUrl = `https://${IPFS_GATEWAY}/ipfs/${ipfsHash}`;
+      setImagePreview(ipfsUrl);
+      
+      alert('Image de profil uploadée avec succès !');
+    } catch (error) {
+      console.error('Erreur upload image:', error);
+      alert('Erreur lors de l\'upload de l\'image');
+      setImagePreview(null);
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
+  // Fonction pour gérer l'upload d'image de produit
+  const handleProductImageUpload = async (file) => {
+    if (!file) return;
+
+    // Validation du fichier
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      alert('Format non supporté. Utilisez: JPG, PNG, WEBP');
+      return;
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      alert('L\'image ne doit pas dépasser 5MB');
+      return;
+    }
+
+    setProductImageUploading(true);
+    
+    try {
+      // Créer preview local
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProductImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+
+      // Upload vers IPFS
+      const ipfsHash = await uploadToIPFS(file);
+      
+      // Mettre à jour le formulaire avec le hash IPFS
+      setForm(prev => ({ ...prev, image: ipfsHash }));
+      
+      // Mettre à jour le preview avec l'URL IPFS
+      const ipfsUrl = `https://${IPFS_GATEWAY}/ipfs/${ipfsHash}`;
+      setProductImagePreview(ipfsUrl);      
+      alert('Image du produit uploadée avec succès !');
+    } catch (error) {
+      console.error('Erreur upload image produit:', error);
+      alert('Erreur lors de l\'upload de l\'image du produit');
+      setProductImagePreview(null);
+    } finally {
+      setProductImageUploading(false);
+    }
+  };
+
+  // Fonction pour supprimer l'image de profil
+  const handleImageRemove = () => {
+    setImagePreview(null);
+    handleProfileFormChange('image', '');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Fonction pour supprimer l'image de produit
+  const handleProductImageRemove = () => {
+    setProductImagePreview(null);
+    setForm(prev => ({ ...prev, image: '' }));
+    if (productFileInputRef.current) {
+      productFileInputRef.current.value = '';
+    }
+  };
+
   const fetchUserInfo = async () => {
     try {
       if (contract && account) {
         const userDetails = await contract.getUserById(account);
         const balance = await contract.getEthBalance(account);
         
-        setUserInfo({
-          firstName: userDetails[0],
-          lastName: userDetails[1],
-          age: userDetails[2].toString(),
-          gender: userDetails[3],
-          isSeller: userDetails[4],
-          email: userDetails[5],
-          balance: (parseInt(balance) / 1e18).toFixed(4)
-        });
+        const userData = {
+          firstName: userDetails[0] || '',
+          lastName: userDetails[1] || '',
+          age: userDetails[2] ? userDetails[2].toString() : '0',
+          gender: userDetails[3] || '',
+          isSeller: userDetails[4] || false,
+          email: userDetails[5] || '',
+          balance: (parseInt(balance) / 1e18).toFixed(4),
+          // Vérifiez si l'image existe à l'index 6 ou 7
+          image: userDetails[6] || userDetails[7] || '' // Essayez les deux index
+        };
+
+        setUserInfo(userData);
 
         setProfileForm({
-          firstName: userDetails[0],
-          lastName: userDetails[1],
-          age: userDetails[2].toString(),
-          gender: userDetails[3],
-          email: userDetails[5]
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          age: userData.age,
+          gender: userData.gender,
+          email: userData.email,
+          image: userData.image
         });
+
+        // Définir l'image preview si elle existe
+        if (userData.image) {
+          // Vérifiez si l'image commence par 'Qm' (hash IPFS) ou est déjà une URL complète
+          const imageUrl = userData.image.startsWith('Qm') 
+            ? `https://${IPFS_GATEWAY}/ipfs/${userData.image}`
+            : userData.image;
+          setImagePreview(imageUrl);
+        } else {
+          setImagePreview(null);
+        }
       }
     } catch (err) {
       console.error("Error fetching user info:", err);
@@ -150,24 +386,109 @@ const SellerDashboard = ({ account, contract }) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  // CORRECTION: Fonction handleSubmit avec validations améliorées
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validations étendues
+    if (!form.name.trim()) {
+      alert("❌ Le nom du produit est obligatoire");
+      return;
+    }
+    
+    if (!form.category.trim()) {
+      alert("❌ La catégorie est obligatoire");
+      return;
+    }
+    
+    if (!form.company.trim()) {
+      alert("❌ Le nom de l'entreprise est obligatoire");
+      return;
+    }
+    
+    // Validation du prix
+    const price = parseInt(form.value);
+    if (isNaN(price) || price <= 0) {
+      alert("❌ Le prix doit être un nombre positif");
+      return;
+    }
+    
+    // Validation de la quantité
+    const quantity = parseInt(form.quantity);
+    if (isNaN(quantity) || quantity <= 0) {
+      alert("❌ La quantité doit être un nombre positif");
+      return;
+    }
+    
+    // Validation de l'image (optionnelle mais si présente, doit être valide)
+    const imageHash = form.image || "";
+    if (imageHash && !imageHash.startsWith('Qm')) {
+      console.warn("Hash IPFS potentiellement invalide:", imageHash);
+    }
+    
     try {
+      // Vérification du contrat et de l'account
+      if (!contract) {
+        alert("❌ Contrat non disponible");
+        return;
+      }
+      
+      if (!account) {
+        alert("❌ Compte non connecté");
+        return;
+      }
+      
+      // Vérification que l'utilisateur est un vendeur
+      if (!userInfo.isSeller) {
+        alert("❌ Seuls les vendeurs peuvent ajouter des produits");
+        return;
+      }
+            
+      // CORRECTION: Appel du contrat avec gestion d'erreur améliorée
       const tx = await contract.addCommodity(
-        form.name, form.category, parseInt(form.value), 
-        parseInt(form.quantity), form.company
+        form.name.trim(),
+        form.category.trim(),
+        price,
+        quantity,
+        form.company.trim(),
+        imageHash
       );
+
+      
       await tx.wait();
-      alert("Produit ajouté !");
-      setForm({ name: "", category: "", value: "", quantity: "", company: "" });
+      
+      alert("✅ Produit ajouté avec succès !");
+      
+      // Reset du formulaire
+      setForm({ 
+        name: "", 
+        category: "", 
+        value: "", 
+        quantity: "", 
+        company: "", 
+        image: "" 
+      });
+      setProductImagePreview(null);
       setShowAddForm(false);
-      fetchCommodities();
+      
+      // Actualiser la liste des produits
+      await fetchCommodities();
+      
     } catch (err) {
+      console.error("❌ Erreur lors de l'ajout du produit:", err);
+      
+      // Gestion d'erreurs améliorée
       if (err.code === 4001) {
-        alert("❌ Transaction annulée par l'utilisateur.");
+        alert("❌ Transaction annulée par l'utilisateur");
+      } else if (err.code === "CALL_EXCEPTION") {
+        console.error("Données de transaction:", err.transaction);
+        alert("❌ Erreur du contrat. Vérifiez que:\n- Vous êtes bien un vendeur\n- Tous les champs sont valides\n- Vous avez assez de gas");
+      } else if (err.reason) {
+        alert(`❌ Erreur: ${err.reason}`);
+      } else if (err.message) {
+        alert(`❌ Erreur: ${err.message}`);
       } else {
-        console.error(err);
-        alert("Erreur lors de l'ajout.");
+        alert("❌ Erreur inconnue lors de l'ajout du produit");
       }
     }
   };
@@ -190,7 +511,8 @@ const SellerDashboard = ({ account, contract }) => {
         profileForm.lastName,
         age,
         profileForm.gender,
-        profileForm.email
+        profileForm.email,
+        profileForm.image || '' // Image IPFS hash
       );
       await tx.wait();
       
@@ -216,8 +538,10 @@ const SellerDashboard = ({ account, contract }) => {
       lastName: userInfo.lastName,
       age: userInfo.age,
       gender: userInfo.gender,
-      email: userInfo.email
+      email: userInfo.email,
+      image: userInfo.image || ''
     });
+    setImagePreview(userInfo.image ? `https://${IPFS_GATEWAY}/ipfs/${userInfo.image}` : null);
     setIsEditingProfile(false);
   };
 
@@ -237,7 +561,7 @@ const SellerDashboard = ({ account, contract }) => {
   const sellerStats = [
     { icon: Package, number: commodities.length.toString(), label: 'Produits actifs' },
     { icon: ShoppingCart, number: orders.length.toString(), label: 'Commandes reçues' },
-    { icon: DollarSign, number: `${stats.totalRevenue} ETH`, label: 'Revenus générés' },
+    // { icon: DollarSign, number: `${stats.totalRevenue} ETH`, label: 'Revenus générés' },
   ];
 
   const handleLogout = () => {
@@ -261,16 +585,14 @@ const SellerDashboard = ({ account, contract }) => {
         </div>
         
         <div className="flex items-center gap-4">
-
           <div className="flex gap-4 justify-center">
-              <button
-                onClick={handleLogout}
-                className="px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 rounded-xl text-white font-medium transition-all hover:-translate-y-0.5 shadow-lg shadow-red-500/30"
-              >
-                Se déconnecter
-              </button>
-            </div>
-
+            <button
+              onClick={handleLogout}
+              className="px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 rounded-xl text-white font-medium transition-all hover:-translate-y-0.5 shadow-lg shadow-red-500/30"
+            >
+              Se déconnecter
+            </button>
+          </div>
 
           <div className="text-right">
             <div className="text-sm text-gray-300 font-mono">
@@ -278,8 +600,16 @@ const SellerDashboard = ({ account, contract }) => {
             </div>
             <div className="text-cyan-400 font-semibold">{userInfo.balance} ETH</div>
           </div>
-          <div className="w-10 h-10 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full flex items-center justify-center">
-            <User size={20} />
+          <div className="w-10 h-10 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full flex items-center justify-center overflow-hidden">
+            {userInfo.image ? (
+              <ImageDisplay
+                src={userInfo.image}
+                alt="Photo de profil"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <User size={20} />
+            )}
           </div>
         </div>
       </header>
@@ -347,7 +677,19 @@ const SellerDashboard = ({ account, contract }) => {
             </div>
             
             {!isEditingProfile ? (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                {/* Photo de profil */}
+                <div className="flex flex-col items-center space-y-3">
+                  <h4 className="font-semibold text-cyan-400">Photo</h4>
+                  <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-cyan-400/50">
+                    <ImageDisplay
+                      src={userInfo.image}
+                      alt="Photo de profil"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-3">
                   <h4 className="font-semibold text-cyan-400 mb-3">Identité</h4>
                   <div className="space-y-2">
@@ -411,9 +753,78 @@ const SellerDashboard = ({ account, contract }) => {
                 </div>
               </div>
             ) : (
-              /* Profile Edit Mode */
+              /* Profile Edit Mode avec upload d'image */
               <div className="space-y-6">
                 <h3 className="text-lg font-semibold text-cyan-400">Modifier mes informations</h3>
+                
+                {/* Section photo de profil */}
+                <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                  <h4 className="text-md font-semibold text-cyan-300 mb-4">Photo de profil</h4>
+                  
+                  <div className="flex items-center gap-6">
+                    {/* Preview de l'image */}
+                    <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-cyan-400/50 flex-shrink-0">
+                      {imagePreview || userInfo.image ? (
+                        <img
+                          src={imagePreview || (userInfo.image ? `https://${IPFS_GATEWAY}/ipfs/${userInfo.image}` : '')}
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-purple-500/20">
+                          <Camera className="w-8 h-8 text-white/50" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Contrôles upload */}
+                    <div className="flex-1">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0])}
+                        className="hidden"
+                      />
+                      
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={imageUploading}
+                          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-lg hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {imageUploading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                              Upload...
+                            </>
+                          ) : (
+                            <>
+                              <Upload size={16} />
+                              Choisir une photo
+                            </>
+                          )}
+                        </button>
+                        
+                        {(imagePreview || userInfo.image) && (
+                          <button
+                            type="button"
+                            onClick={handleImageRemove}
+                            className="flex items-center gap-2 px-4 py-2 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-500/10 transition-all"
+                          >
+                            <X size={16} />
+                            Supprimer
+                          </button>
+                        )}
+                      </div>
+                      
+                      <p className="text-xs text-gray-400 mt-2">
+                        Formats supportés: JPG, PNG, WEBP (max 5MB)
+                      </p>
+                    </div>
+                  </div>
+                </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
@@ -491,7 +902,8 @@ const SellerDashboard = ({ account, contract }) => {
                 <div className="flex gap-4 pt-6 border-t border-white/20">
                   <button
                     onClick={handleProfileUpdate}
-                    className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-3 rounded-lg hover:scale-105 transition-all flex items-center gap-2 font-semibold"
+                    disabled={imageUploading}
+                    className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-3 rounded-lg hover:scale-105 transition-all flex items-center gap-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <CheckCircle size={16} />
                     Sauvegarder
@@ -688,6 +1100,75 @@ const SellerDashboard = ({ account, contract }) => {
               Ajouter un nouveau produit
             </h3>
             
+            {/* Section image du produit */}
+            <div className="bg-white/5 rounded-lg p-6 border border-white/10 mb-6">
+              <h4 className="text-md font-semibold text-cyan-300 mb-4">Image du produit</h4>
+              
+              <div className="flex items-center gap-6">
+                {/* Preview de l'image */}
+                <div className="w-32 h-32 rounded-lg overflow-hidden border-2 border-cyan-400/50 flex-shrink-0">
+                  {productImagePreview ? (
+                    <img
+                      src={productImagePreview}
+                      alt="Preview du produit"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-purple-500/20">
+                      <ImageIcon className="w-12 h-12 text-white/50" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Contrôles upload */}
+                <div className="flex-1">
+                  <input
+                    ref={productFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => e.target.files[0] && handleProductImageUpload(e.target.files[0])}
+                    className="hidden"
+                  />
+                  
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => productFileInputRef.current?.click()}
+                      disabled={productImageUploading}
+                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-lg hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {productImageUploading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          Upload...
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={16} />
+                          Choisir une image
+                        </>
+                      )}
+                    </button>
+                    
+                    {productImagePreview && (
+                      <button
+                        type="button"
+                        onClick={handleProductImageRemove}
+                        className="flex items-center gap-2 px-4 py-2 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-500/10 transition-all"
+                      >
+                        <X size={16} />
+                        Supprimer
+                      </button>
+                    )}
+                  </div>
+                  
+                  <p className="text-xs text-gray-400 mt-2">
+                    Formats supportés: JPG, PNG, WEBP (max 5MB) - Optionnel
+                  </p>
+                </div>
+              </div>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-300 flex items-center gap-2">
@@ -722,7 +1203,7 @@ const SellerDashboard = ({ account, contract }) => {
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-300 flex items-center gap-2">
                   <Coins size={16} />
-                  Prix (en wei)
+                  Prix (en gwei)
                 </label>
                 <input 
                   name="value" 
@@ -751,7 +1232,7 @@ const SellerDashboard = ({ account, contract }) => {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 md:col-span-2">
                 <label className="text-sm font-semibold text-gray-300 flex items-center gap-2">
                   <Building size={16} />
                   Entreprise
@@ -771,16 +1252,21 @@ const SellerDashboard = ({ account, contract }) => {
               <button 
                 type="button"
                 className="px-8 py-3 border border-white/30 rounded-lg hover:bg-white/10 transition-all"
-                onClick={() => setShowAddForm(false)}
+                onClick={() => {
+                  setShowAddForm(false);
+                  setProductImagePreview(null);
+                  setForm({ name: "", category: "", value: "", quantity: "", company: "", image: "" });
+                }}
               >
                 Annuler
               </button>
               <button 
                 type="submit"
-                className="px-8 py-3 bg-gradient-to-r from-cyan-400 to-purple-600 rounded-lg font-semibold hover:scale-105 transition-all"
+                className="px-8 py-3 bg-gradient-to-r from-cyan-400 to-purple-600 rounded-lg font-semibold hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleSubmit}
+                disabled={productImageUploading}
               >
-                Ajouter le produit
+                {productImageUploading ? 'Upload en cours...' : 'Ajouter le produit'}
               </button>
             </div>
           </div>
@@ -810,6 +1296,16 @@ const SellerDashboard = ({ account, contract }) => {
                   key={index} 
                   className="bg-white/10 backdrop-blur rounded-2xl p-6 border border-white/20 hover:-translate-y-1 hover:shadow-lg hover:shadow-cyan-400/30 transition-all"
                 >
+                  {/* Image du produit */}
+                  <div className="w-full h-48 rounded-xl mb-4 overflow-hidden">
+                    <ImageDisplay
+                      src={product.image}
+                      alt={product.name || `Produit ${index + 1}`}
+                      className="w-full h-full object-cover"
+                      fallback={true}
+                    />
+                  </div>
+                  
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold mb-2">
