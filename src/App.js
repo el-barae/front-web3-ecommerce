@@ -8,30 +8,76 @@ import ClientDashboard from "./components/Client/ClientDashboard";
 import { ethers } from "ethers";
 import EcommerceABI from "./abis/Ecommerce.json";
 
-const contractAddress = "0x9c119135c9b27d1e3A3Ed50A01B5c546aE3FfeA0";
+const contractAddress = "0x8d6aF714e48c75E6298C925BEB8e65420d18537B";
 
 function App() {
   const [account, setAccount] = useState(null);
   const [contract, setContract] = useState(null);
 
-  const connectWallet = async () => {
-    if (typeof window.ethereum === "undefined") {
-      alert("Veuillez installer Metamask !");
-      return;
-    }
 
-    try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const ecommerce = new ethers.Contract(contractAddress, EcommerceABI.abi, signer);
-      const address = await signer.getAddress();
+    const connectWallet = async () => {
+  if (typeof window.ethereum === "undefined") {
+    alert("Veuillez installer Metamask !");
+    return;
+  }
 
-      setAccount(address);
-      setContract(ecommerce);
-    } catch (error) {
-      console.error("Erreur de connexion au wallet :", error);
-    }
-  };
+  try {
+    // Vérifier/forcer Sepolia
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0xaa36a7" }], // 11155111 en hex
+    }).catch(async (switchError) => {
+      if (switchError.code === 4902) {
+        // Si Sepolia n'est pas ajouté, on l'ajoute
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0xaa36a7",
+            chainName: "Sepolia Test Network",
+            nativeCurrency: {
+              name: "SepoliaETH",
+              symbol: "ETH",
+              decimals: 18,
+            },
+            rpcUrls: ["https://sepolia.infura.io/v3/d1b840e1289f481ea53dea801e827197"],
+            blockExplorerUrls: ["https://sepolia.etherscan.io/"],
+          }],
+        });
+      }
+    });
+
+    // Connexion classique
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const ecommerce = new ethers.Contract(contractAddress, EcommerceABI.abi, signer);
+    const address = await signer.getAddress();
+
+    setAccount(address);
+    setContract(ecommerce);
+  } catch (error) {
+    console.error("Erreur de connexion au wallet :", error);
+  }
+};
+
+
+  // const connectWallet = async () => {
+  //   if (typeof window.ethereum === "undefined") {
+  //     alert("Veuillez installer Metamask !");
+  //     return;
+  //   }
+
+  //   try {
+  //     const provider = new ethers.BrowserProvider(window.ethereum);
+  //     const signer = await provider.getSigner();
+  //     const ecommerce = new ethers.Contract(contractAddress, EcommerceABI.abi, signer);
+  //     const address = await signer.getAddress();
+
+  //     setAccount(address);
+  //     setContract(ecommerce);
+  //   } catch (error) {
+  //     console.error("Erreur de connexion au wallet :", error);
+  //   }
+  // };
 
   useEffect(() => {
     connectWallet();
