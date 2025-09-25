@@ -32,6 +32,15 @@ const SellerDashboard = ({ account, contract }) => {
   const [productImageUploading, setProductImageUploading] = useState(false);
   const fileInputRef = useRef(null);
   const productFileInputRef = useRef(null);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    category: "",
+    value: "",
+    quantity: "",
+    company: "",
+    image: "",
+  });
   
   const [form, setForm] = useState({
     name: "", category: "", value: "", quantity: "", company: "", image: ""
@@ -341,6 +350,44 @@ const SellerDashboard = ({ account, contract }) => {
     }
   };
 
+  // handle edit click
+  const handleEdit = (index) => {
+    const product = commodities[index];
+    setEditingIndex(index);
+    setEditForm({
+      name: product.name,
+      category: product.category,
+      value: product.value ? product.value.toString() : "",
+      quantity: product.quantity ? product.quantity.toString() : "",
+      company: product.company,
+      image: product.image,
+    });
+  };
+
+
+  // submit update
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    try {
+      const tx = await contract.updateCommodity(
+        editingIndex,
+        editForm.name,
+        editForm.category,
+        parseInt(editForm.value),
+        parseInt(editForm.quantity),
+        editForm.company,
+        editForm.image
+      );
+      await tx.wait();
+      alert("Produit mis à jour !");
+      setEditingIndex(null);
+      fetchCommodities();
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de la mise à jour.");
+    }
+  };
+
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
       const tx = await contract.updateOrderStatus(orderId, newStatus);
@@ -384,6 +431,11 @@ const SellerDashboard = ({ account, contract }) => {
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleChangeEdit = (e) => {
+    const { name, value } = e.target;
+  setEditForm((prev) => ({ ...prev, [name]: value }));
   };
 
   // CORRECTION: Fonction handleSubmit avec validations améliorées
@@ -1319,12 +1371,12 @@ const SellerDashboard = ({ account, contract }) => {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <button className="bg-white/10 border border-white/30 p-2 rounded-lg hover:bg-white/20 transition-all">
-                        <Eye size={16} />
-                      </button>
-                      <button className="bg-white/10 border border-white/30 p-2 rounded-lg hover:bg-white/20 transition-all">
-                        <Edit3 size={16} />
-                      </button>
+                      <button
+                  className="bg-white/10 border p-2 rounded-lg hover:bg-white/20"
+                  onClick={() => handleEdit(index)}
+                >
+                  <Edit3 size={16} />
+                </button>
                     </div>
                   </div>
                   
@@ -1344,6 +1396,88 @@ const SellerDashboard = ({ account, contract }) => {
                   </div>
                 </div>
               ))}
+              {/* Formulaire d’édition */}
+      {editingIndex !== null && (
+        <div className="fixed inset-0 bg-black/60 flex justify-center items-center">
+          <form
+            onSubmit={handleUpdate}
+            className="bg-white rounded-xl p-6 w-96 shadow-xl space-y-2"
+          >
+            <h2 className="text-xl text-black font-semibold">Modifier le produit</h2>
+            <label htmlFor="name" className='text-black'>Name:</label>
+            <input
+              type="text"
+              name="name"
+              value={editForm.name}
+              onChange={handleChangeEdit}
+              placeholder="Nom"
+              className="w-full border rounded text-black mb-2"
+            />
+            <label htmlFor="category" className='text-black'>Category:</label>            
+            <input
+              type="text"
+              name="category"
+              value={editForm.category}
+              onChange={handleChangeEdit}
+              placeholder="Catégorie"
+              className="w-full border rounded mb-2 text-black"
+            />
+            <label htmlFor="Prix" className='text-black'>Price:</label>
+
+            <input
+              type="number"
+              name="value"
+              value={editForm.value}
+              onChange={handleChangeEdit}
+              placeholder="Prix (gwei)"
+              className="w-full border rounded mb-2 text-black"
+            />
+            <label htmlFor="quantity" className='text-black'>Quantity:</label>
+            <input
+              type="number"
+              name="quantity"
+              value={editForm.quantity}
+              onChange={handleChangeEdit}
+              placeholder="Quantité"
+              className="w-full border rounded mb-2 text-black"
+            />
+            <label htmlFor="company" className='text-black'>Company:</label>
+            <input
+              type="text"
+              name="company"
+              value={editForm.company}
+              onChange={handleChangeEdit}
+              placeholder="Entreprise"
+              className="w-full border rounded mb-2 text-black"
+            />
+            <label htmlFor="image" className='text-black'>Image:</label>
+            <input
+              type="text"
+              name="image"
+              value={editForm.image}
+              onChange={handleChangeEdit}
+              placeholder="Image URL"
+              className="w-full border rounded mb-2 text-black"
+            />
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingIndex(null)}
+                className="px-4 py-2 bg-gray-300 rounded"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-cyan-500 text-white rounded"
+              >
+                Sauvegarder
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
             </div>
           )}
         </div>

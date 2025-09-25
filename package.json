@@ -14,8 +14,9 @@
     "react-dom": "^19.1.1",
     "react-refresh": "^0.17.0",
     "react-router-dom": "^7.7.1",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
+    "react-scripts": "^5.0.1",
+    "web-vitals": "^2.1.4",
+    "webpack-dev-server": "^5.2.2"
   },
   "scripts": {
     "start": "react-scripts start",
